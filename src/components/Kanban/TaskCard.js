@@ -20,7 +20,7 @@ const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
   };
 
   return (
-    <div className="bg-white p-3 mb-3 rounded-lg shadow-md border border-gray-200">
+    <div className="bg-white p-3 mb-3 rounded-lg shadow-md border border-spearmint-200">
       {isEditing ? (
         <div className="space-y-2">
           <input
@@ -39,7 +39,7 @@ const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
           <div className="flex justify-end space-x-2">
             <button
               onClick={handleSaveEdit}
-              className="p-2 bg-green-500 text-white rounded-md hover:bg-green-600 flex items-center"
+              className="p-2 bg-tangerine-500 text-white rounded-md hover:bg-tangerine-600 flex items-center"
             >
               <Save size={16} className="mr-1" /> Save
             </button>
@@ -53,10 +53,10 @@ const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
         </div>
       ) : (
         <>
-          <h4 className="font-semibold text-gray-800 break-words">
+          <h4 className="font-semibold text-olive-green-700 break-words">
             {task.title}
           </h4>
-          <p className="text-sm text-gray-600 mt-1 break-words">
+          <p className="text-sm text-olive-green-600 mt-1 break-words">
             {task.description}
           </p>
           <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between items-center">
@@ -64,7 +64,7 @@ const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
               <select
                 value={task.status}
                 onChange={(e) => onMoveTask(task.id, e.target.value)}
-                className="text-xs bg-gray-100 p-1.5 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500 pr-6"
+                className="text-xs bg-gray-100 p-1.5 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-misty-blue-400 pr-6"
               >
                 {columns.map((col) => (
                   <option key={col} value={col}>
@@ -80,7 +80,7 @@ const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
             <div className="flex space-x-1">
               <button
                 onClick={() => setIsEditing(true)}
-                className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-full"
+                className="p-1.5 text-misty-blue-600 hover:text-misty-blue-700 hover:bg-blue-100 rounded-full"
                 title="Edit Task"
               >
                 <Edit3 size={16} />

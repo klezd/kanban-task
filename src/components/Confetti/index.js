@@ -17,14 +17,14 @@ const Confetti = ({ onAnimationEnd }) => {
     let particles = [];
     const particleCount = 200;
     const colors = [
-      "#FFC700",
-      "#FF0000",
-      "#2E3192",
-      "#44C0A8",
-      "#A349A4",
-      "#FF8C00",
+      "#91a5a1",
+      "#81abbc",
+      "#e6b451",
+      "#5e6e54",
+      "#FFFFFF",
+      "#DBEAFE",
     ];
-
+    
     function Particle() {
       this.x = Math.random() * width;
       this.y = Math.random() * height - height;

@@ -20,6 +20,8 @@ import {
   signOut,
 } from "./config/firebaseConfig"; // Adjust path if needed
 
+import { Plus } from "lucide-react";
+
 import Confetti from "./components/Confetti";
 import { AddTaskForm, Column } from "./components/Kanban";
 import { Header } from "./components/Layout";
@@ -33,10 +35,11 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [showConfetti, setShowConfetti] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false); // Tracks if onAuthStateChanged has run once
   const [authError, setAuthError] = useState(null);
   const [dbError, setDbError] = useState(null);
-
+  const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   // Firebase auth listener
   useEffect(() => {
     if (!auth) {
@@ -47,10 +50,12 @@ function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUserId(user.uid);
+        setCurrentUser(user);
         console.log("User is signed in:", user.uid);
         setAuthError(null); // Clear auth error on successful sign-in
       } else {
         setCurrentUserId(null);
+        setCurrentUser(null);
         console.log("User is signed out.");
         setTasks([]); // Clear tasks when user signs out
       }
@@ -307,10 +312,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-sky-100 p-4 md:p-6 relative font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-spearmint-100 to-misty-blue-100 p-4 md:p-6 relative font-sans">
       {showConfetti && <Confetti onAnimationEnd={handleConfettiEnd} />}
 
-      <Header userId={currentUserId} />
+      <Header user={currentUser} handleSignOut={handleSignOut} />
 
       {authError && (
         <div className="p-3 mb-4 bg-red-100 border border-red-400 text-red-700 rounded-lg text-center">
@@ -330,7 +335,7 @@ function App() {
           </p>
           <button
             onClick={handleSignInWithGoogle}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md flex items-center transition duration-150 ease-in-out"
+            className="bg-misty-blue-500 hover:bg-misty-blue-600 text-olive-green-900 font-bold py-3 px-6 rounded-lg shadow-md flex items-center transition duration-150 ease-in-out"
           >
             {/* You can add a Google icon here */}
             <svg
@@ -349,16 +354,20 @@ function App() {
         </div>
       ) : (
         <>
-          <div className="text-center mb-6">
+          <div className="mb-6 flex justify-center md:justify-start">
             <button
-              onClick={handleSignOut}
-              className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow"
+              onClick={() => setIsAddTaskModalOpen(true)}
+              className="bg-misty-blue-500 hover:bg-misty-blue-600 text-olive-green-950 py-2.5 px-5 rounded-lg shadow-md transition duration-150 flex items-center font-medium"
             >
-              Sign Out
+              <Plus size={20} className="mr-2" /> Add New Task
             </button>
           </div>
 
-          <AddTaskForm onAddTask={handleAddTask} />
+          <AddTaskForm
+            onAddTask={handleAddTask}
+            isModalOpen={isAddTaskModalOpen}
+            setIsModalOpen={setIsAddTaskModalOpen}
+          />
 
           {isLoading && (
             <div className="text-center py-5">Loading tasks...</div>

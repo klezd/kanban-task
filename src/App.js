@@ -1,23 +1,397 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState, useEffect } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 
+import {
+  doc,
+  addDoc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  collection,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
+
+import {
+  auth,
+  db,
+  currentAppId,
+  googleProvider,
+  signInWithPopup,
+  signOut,
+} from "./config/firebaseConfig"; // Adjust path if needed
+import Confetti from "./components/Confetti";
+
+import { AddTaskForm, Column } from "./components/Kanban";
+import { Header } from "./components/Layout";
+// --- Kanban Columns ---
+const KANBAN_COLUMNS = ["Backlog", "To Do", "In Progress", "Done"];
+
+// --- Main App Component ---
 function App() {
-  return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false); // Tracks if onAuthStateChanged has run once
+  const [authError, setAuthError] = useState(null);
+  const [dbError, setDbError] = useState(null);
+
+  // Firebase auth listener
+  useEffect(() => {
+    if (!auth) {
+      setAuthError("Firebase Auth not initialized.");
+      setIsAuthReady(true);
+      return;
+    }
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUserId(user.uid);
+        console.log("User is signed in:", user.uid);
+        setAuthError(null); // Clear auth error on successful sign-in
+      } else {
+        setCurrentUserId(null);
+        console.log("User is signed out.");
+        setTasks([]); // Clear tasks when user signs out
+      }
+      if (!isAuthReady) setIsAuthReady(true); // Mark auth as ready after first check
+      setIsLoading(false); // Also set loading to false here after auth state is known
+    });
+
+    return () => unsubscribeAuth();
+  }, [isAuthReady]); // isAuthReady dependency ensures this runs once auth is ready.
+
+  // Firestore listener for tasks (runs when currentUserId changes)
+  useEffect(() => {
+    if (!currentUserId || !db) {
+      if (currentUserId) setDbError("Firestore DB not available."); // Only set DB error if user is logged in but DB fails
+      setTasks([]); // Clear tasks if no user or no DB
+      return;
+    }
+
+    console.log(
+      `Setting up Firestore listener for user: ${currentUserId} and app: ${currentAppId}`
+    );
+    setIsLoading(true); // Set loading true when starting to fetch tasks for a new user
+    const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUserId}/tasks`;
+    const q = query(collection(db, tasksCollectionPath));
+
+    const unsubscribeFirestore = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const tasksData = querySnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        tasksData.sort((a, b) => {
+          const timeA = a.createdAt?.seconds
+            ? a.createdAt.seconds
+            : a.createdAt || 0;
+          const timeB = b.createdAt?.seconds
+            ? b.createdAt.seconds
+            : b.createdAt || 0;
+          return timeA - timeB;
+        });
+        setTasks(tasksData);
+        setIsLoading(false);
+        setDbError(null);
+      },
+      (firestoreError) => {
+        console.error(
+          `Error fetching tasks for user ${currentUserId}:`,
+          firestoreError
+        );
+        setDbError("Could not load tasks. " + firestoreError.message);
+        setIsLoading(false);
+      }
+    );
+
+    return () => {
+      console.log(`Cleaning up Firestore listener for user: ${currentUserId}`);
+      unsubscribeFirestore();
+    };
+  }, [currentUserId]); // Re-run when currentUserId changes
+
+  const handleSignInWithGoogle = async () => {
+    if (!auth || !googleProvider) {
+      setAuthError(
+        "Firebase Auth or Google Provider not available for sign-in."
+      );
+      return;
+    }
+    setAuthError(null); // Clear previous errors
+    try {
+      await signInWithPopup(auth, googleProvider);
+      // onAuthStateChanged will handle setting the user
+    } catch (error) {
+      console.error("Error during Google sign-in:", error);
+      // @ts-ignore
+      setAuthError(`Google Sign-In Failed: ${error.message}`);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!auth) {
+      setAuthError("Firebase Auth not available for sign-out.");
+      return;
+    }
+    try {
+      await signOut(auth);
+      // onAuthStateChanged will set currentUserId to null and clear tasks
+    } catch (error) {
+      console.error("Error signing out: ", error);
+      // @ts-ignore
+      setAuthError(`Sign-Out Failed: ${error.message}`);
+    }
+  };
+
+  // Firestore listener for tasks
+  useEffect(() => {
+    if (!isAuthReady || !currentUserId || !db) {
+      if (isAuthReady && !currentUserId) setIsLoading(false); // Not logged in, no tasks to load
+      return;
+    }
+
+    setIsLoading(true);
+    const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUserId}/tasks`;
+    const q = query(collection(db, tasksCollectionPath));
+
+    const unsubscribeFirestore = onSnapshot(
+      q,
+      (querySnapshot) => {
+        const tasksData = querySnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+        // Sort tasks by creation date (oldest first) or a specific order if needed
+        tasksData.sort(
+          (a, b) => (a.createdAt?.toDate() || 0) - (b.createdAt?.toDate() || 0)
+        );
+        setTasks(tasksData);
+        setIsLoading(false);
+        setDbError(null);
+      },
+      (firestoreError) => {
+        console.error("Error fetching tasks:", firestoreError);
+        setDbError(
+          "Could not load tasks. There might be a connection issue or permission problem."
+        );
+        setIsLoading(false);
+      }
+    );
+
+    return () => unsubscribeFirestore();
+  }, [isAuthReady, currentUserId]);
+
+  const handleAddTask = async (title, description) => {
+    if (!currentUserId || !db) {
+      setDbError("Cannot add task: Not connected or user not signed in.");
+      return;
+    }
+
+    const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUserId}/tasks`;
+    try {
+      await addDoc(collection(db, tasksCollectionPath), {
+        title,
+        description,
+        status: KANBAN_COLUMNS[0], // Default to Backlog
+        createdAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Error adding task: ", e);
+      setDbError("Failed to add task.");
+    }
+  };
+
+  const handleMoveTask = async (taskId, newStatus) => {
+    if (!currentUserId || !db) {
+      console.error(
+        "User not authenticated or DB not available for moving task."
+      );
+      setDbError("Cannot move task: Not connected.");
+      return;
+    }
+    const taskDocRef = doc(
+      db,
+      `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
+      taskId
+    );
+    try {
+      await setDoc(taskDocRef, { status: newStatus }, { merge: true });
+      if (newStatus === "Done") {
+        setShowConfetti(true);
+      }
+    } catch (e) {
+      console.error("Error moving task: ", e);
+      setDbError("Failed to move task.");
+    }
+  };
+
+  const handleEditTask = async (taskId, updatedData) => {
+    if (!currentUserId || !db) {
+      console.error(
+        "User not authenticated or DB not available for editing task."
+      );
+      setDbError("Cannot edit task: Not connected.");
+      return;
+    }
+    const taskDocRef = doc(
+      db,
+      `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
+      taskId
+    );
+    try {
+      await setDoc(
+        taskDocRef,
+        {
+          title: updatedData.title,
+          description: updatedData.description,
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.error("Error editing task: ", e);
+      setDbError("Failed to edit task.");
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!currentUserId || !db) {
+      console.error(
+        "User not authenticated or DB not available for deleting task."
+      );
+      setDbError("Cannot delete task: Not connected.");
+      return;
+    }
+    // A simple confirmation before deleting. Replace with a modal for better UX.
+    if (window.confirm("Are you sure you want to delete this task?")) {
+      const taskDocRef = doc(
+        db,
+        `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
+        taskId
+      );
+      try {
+        await deleteDoc(taskDocRef);
+      } catch (e) {
+        console.error("Error deleting task: ", e);
+        setDbError("Failed to delete task.");
+      }
+    }
+  };
+
+  const handleConfettiEnd = () => {
+    setShowConfetti(false);
+  };
+
+  if (!isAuthReady) {
+    return (
+      <div className="flex justify-center items-center h-screen bg-gray-50">
+        <div className="text-lg font-semibold text-gray-700">
+          Initializing Application...
+        </div>
+      </div>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <div className="p-4 m-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+        <h3 className="font-bold">Application Error</h3>
+        <p>{dbError}</p>
         <p>
-          Edit <code>src/App.js</code> and save to reload.
+          Please ensure you have a stable internet connection and try refreshing
+          the page. If the problem persists, contact support.
         </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-sky-100 p-4 md:p-6 relative font-sans">
+      {showConfetti && <Confetti onAnimationEnd={handleConfettiEnd} />}
+
+      <Header userId={currentUserId} />
+
+      {authError && (
+        <div className="p-3 mb-4 bg-red-100 border border-red-400 text-red-700 rounded-lg text-center">
+          <p>{authError}</p>
+        </div>
+      )}
+      {dbError && (
+        <div className="p-3 mb-4 bg-red-100 border border-red-400 text-red-700 rounded-lg text-center">
+          <p>{dbError}</p>
+        </div>
+      )}
+
+      {!currentUserId ? (
+        <div className="flex flex-col items-center justify-center p-10">
+          <p className="text-lg text-gray-700 mb-6">
+            Please sign in to manage your tasks.
+          </p>
+          <button
+            onClick={handleSignInWithGoogle}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-md flex items-center transition duration-150 ease-in-out"
+          >
+            {/* You can add a Google icon here */}
+            <svg
+              className="w-5 h-5 mr-2"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="white"
+            >
+              <path d="M22.56,12.25C22.56,11.47 22.49,10.72 22.36,10H12V14.26H17.94C17.66,15.89 16.75,17.29 15.31,18.25V21.09H19.16C21.33,19.13 22.56,15.97 22.56,12.25Z" />
+              <path d="M12,23C14.97,23 17.45,22.04 19.16,20.45L15.31,17.61C14.36,18.25 13.25,18.67 12,18.67C9.53,18.67 7.4,17.09 6.56,14.84H2.58V17.69C4.3,20.92 7.86,23 12,23Z" />
+              <path d="M6.56,13.71C6.38,13.18 6.27,12.59 6.27,12C6.27,11.41 6.38,10.82 6.56,10.29V7.44H2.58C1.74,8.96 1.25,10.43 1.25,12C1.25,13.57 1.74,15.04 2.58,16.56L6.56,13.71Z" />
+              <path d="M12,5.33C13.57,5.33 15.04,5.89 16.16,6.97L19.25,3.88C17.45,2.22 14.97,1.25 12,1.25C7.86,1.25 4.3,3.58 2.58,6.75L6.56,9.5C7.4,7.16 9.53,5.33 12,5.33Z" />
+            </svg>
+            Sign in with Google
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="text-center mb-6">
+            <button
+              onClick={handleSignOut}
+              className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow"
+            >
+              Sign Out
+            </button>
+          </div>
+
+          <AddTaskForm onAddTask={handleAddTask} />
+
+          {isLoading && (
+            <div className="text-center py-5">Loading tasks...</div>
+          )}
+
+          {!isLoading && !tasks.length && (
+            <div className="text-center text-gray-500 py-10">
+              <p className="text-xl">No tasks yet!</p>
+              <p>Click &#8220;Add New Task&#8220; to get started.</p>
+            </div>
+          )}
+
+          {!isLoading && tasks.length > 0 && (
+            <div className="flex flex-col md:flex-row gap-4 md:gap-6 overflow-x-auto pb-4">
+              {KANBAN_COLUMNS.map((columnName) => (
+                <Column
+                  key={columnName}
+                  title={columnName}
+                  tasks={tasks.filter((task) => task.status === columnName)}
+                  onMoveTask={(taskId, newStatus) =>
+                    handleMoveTask(taskId, newStatus)
+                  }
+                  onDeleteTask={(taskId) => handleDeleteTask(taskId)}
+                  onEditTask={(taskId, updatedData) =>
+                    handleEditTask(taskId, updatedData)
+                  }
+                  columns={KANBAN_COLUMNS}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

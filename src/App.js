@@ -11,7 +11,6 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-
 import {
   auth,
   db,
@@ -20,10 +19,11 @@ import {
   signInWithPopup,
   signOut,
 } from "./config/firebaseConfig"; // Adjust path if needed
-import Confetti from "./components/Confetti";
 
+import Confetti from "./components/Confetti";
 import { AddTaskForm, Column } from "./components/Kanban";
 import { Header } from "./components/Layout";
+
 // --- Kanban Columns ---
 const KANBAN_COLUMNS = ["Backlog", "To Do", "In Progress", "Done"];
 
@@ -325,7 +325,7 @@ function App() {
 
       {!currentUserId ? (
         <div className="flex flex-col items-center justify-center p-10">
-          <p className="text-lg text-gray-700 mb-6">
+          <p className="text-lg text-gray-600 mb-6">
             Please sign in to manage your tasks.
           </p>
           <button

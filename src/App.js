@@ -381,7 +381,7 @@ function App() {
           )}
 
           {!isLoading && tasks.length > 0 && (
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 overflow-x-auto pb-4">
+            <div className="flex flex-col gap-4 md:grid md:grid-cols-4 md:gap-6 pb-4">
               {KANBAN_COLUMNS.map((columnName) => (
                 <Column
                   key={columnName}

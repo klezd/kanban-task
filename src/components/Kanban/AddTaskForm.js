@@ -1,6 +1,6 @@
 // In AddTaskForm.js
-import React, { useState, useEffect, useRef } from "react";
-import PropTypes from "prop-types"; // 👈 Import PropTypes
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import PropTypes from "prop-types";
 import { Plus, XCircle } from "lucide-react";
 
 const AddTaskForm = ({ onAddTask, isModalOpen, setIsModalOpen }) => {
@@ -20,11 +20,11 @@ const AddTaskForm = ({ onAddTask, isModalOpen, setIsModalOpen }) => {
     setDescription("");
     setIsModalOpen(false);
   };
-  const closeModal = () => {
+  const closeModal = useCallback(() => {
     setTitle("");
     setDescription("");
     setIsModalOpen(false);
-  };
+  }, [setIsModalOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -44,7 +44,7 @@ const AddTaskForm = ({ onAddTask, isModalOpen, setIsModalOpen }) => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscapeKey);
     };
-  }, [isModalOpen]);
+  }, [isModalOpen, closeModal]);
 
   if (!isModalOpen) return null;
 

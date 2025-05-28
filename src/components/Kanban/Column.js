@@ -12,7 +12,7 @@ const Column = ({
   columns,
 }) => {
   return (
-    <div className="bg-spearmint-100 p-4 rounded-xl shadow-sm w-full md:w-1/3 lg:w-1/4 flex-shrink-0">
+    <div className="bg-spearmint-100 p-4 rounded-xl shadow-sm w-full">
       <h3 className="font-bold text-lg text-olive-green-700 mb-4 pb-2 border-b-2 border-spearmint-300 ">
         {title} ({tasks.length})
       </h3>

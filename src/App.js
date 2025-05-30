@@ -30,10 +30,11 @@ import { AddTaskForm, Column, TaskDetailModal } from "./components/Kanban";
 import { Header } from "./components/Layout";
 import ConfirmationModal from "./components/common/ConfirmationModal";
 
-import { isDeadlineUrgent } from "./utils/dateUtils";
-
-// --- Kanban Columns ---
-const KANBAN_COLUMNS = ["Backlog", "To Do", "In Progress", "Done"];
+import {
+  isDeadlineUrgent,
+  parseDateStringToTimestamp,
+} from "./utils/dateUtils";
+import { KANBAN_COLUMNS } from "./utils/constants";
 
 // --- Main App Component ---
 function App() {
@@ -202,44 +203,38 @@ function App() {
   }, [isAuthReady, currentUserId]);
 
   const handleAddTask = async (taskData) => {
-    // Expects an object: { title, description, deadline, isImportant, isUrgent }
     if (!currentUser || !db) {
-      setDbError("Cannot add task: Not connected or user not signed in.");
-      return;
+      setDbError("Cannot add task...");
+      return false;
     }
-
     const {
       title,
       description,
       deadline: deadlineString,
       isImportant,
-      isUrgent: userSetValueForIsUrgent,
+      isUrgent,
+      checklist,
     } = taskData;
-
     let deadlineTimestamp = null;
-    let calculatedIsUrgent = false; // Default for auto-calculation
-
+    let calculatedIsUrgentBasedOnDeadline = false;
     if (deadlineString) {
-      // Check if deadlineString is not empty
       try {
-        const [year, month, day] = deadlineString.split("-").map(Number);
-        // Ensure month is 0-indexed for new Date()
-        const localDateAtMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
-        if (isNaN(localDateAtMidnight.getTime())) {
-          // Check for invalid date
-          throw new Error("Invalid date components");
-        }
-        deadlineTimestamp = FirestoreTimestamp.fromDate(localDateAtMidnight);
-        calculatedIsUrgent = isDeadlineUrgent({
-          toDate: () => localDateAtMidnight,
-        }); // Assuming isDeadlineUrgent is available or imported
+        deadlineTimestamp = parseDateStringToTimestamp(deadlineString);
+        if (deadlineTimestamp)
+          calculatedIsUrgentBasedOnDeadline =
+            isDeadlineUrgent(deadlineTimestamp);
+        else if (deadlineString) throw new Error("Parsed deadline is null");
       } catch (e) {
         console.error("Invalid date format for deadline:", deadlineString, e);
-        setDbError("Invalid deadline date provided. Please use YYYY-MM-DD.");
-        return false; // Indicate failure
+        setDbError("Invalid deadline date provided.");
+        return false;
       }
     }
-
+    const finalIsUrgent = isUrgent;
+    const finalHasManuallySetUrgency =
+      (deadlineTimestamp &&
+        finalIsUrgent !== calculatedIsUrgentBasedOnDeadline) ||
+      (!deadlineTimestamp && finalIsUrgent);
     const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUser.uid}/tasks`;
     setDbError(null);
     try {
@@ -251,116 +246,71 @@ function App() {
         authorId: currentUser.uid,
         deadline: deadlineTimestamp,
         isImportant: isImportant || false,
-        isUrgent: userSetValueForIsUrgent, // This now comes from the form's state which might have been auto-set by deadline change
-        hasManuallySetUrgency: false, // NEW: Always false on task creation initially
-
+        isUrgent: finalIsUrgent,
+        hasManuallySetUrgency: finalHasManuallySetUrgency,
         assigneeIds: [currentUser.uid],
+        checklist: Array.isArray(checklist) ? checklist : [],
       });
       setIsAddTaskModalOpen(false);
-      return true; // Indicate success
+      return true;
     } catch (e) {
       console.error("Error adding task: ", e);
       setDbError("Failed to add task.");
-      return false; // Indicate failure
-    }
-  };
-
-  const handleMoveTask = async (taskId, newStatus) => {
-    if (!currentUserId || !db) {
-      console.error(
-        "User not authenticated or DB not available for moving task."
-      );
-      setDbError("Cannot move task: Not connected.");
-      return;
-    }
-    const taskDocRef = doc(
-      db,
-      `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
-      taskId
-    );
-    try {
-      await setDoc(taskDocRef, { status: newStatus }, { merge: true });
-      if (newStatus === "Done") {
-        setShowConfetti(true);
-      }
-    } catch (e) {
-      console.error("Error moving task: ", e);
-      setDbError("Failed to move task.");
+      return false;
     }
   };
 
   const handleUpdateTask = async (taskId, clientUpdatedData) => {
     if (!currentUser || !db) {
-      setDbError("Cannot update task: Not connected.");
-      return;
+      setDbError("Cannot update task...");
+      return false;
     }
     const firestoreUpdateData = { ...clientUpdatedData };
-    let newDeadlineForState = null; // This will be Timestamp or null
-    let newDeadlineForStateAndFirestore = null;
-
-    if (
-      clientUpdatedData.deadline &&
-      typeof clientUpdatedData.deadline === "string"
-    ) {
-      try {
-        const [year, month, day] = clientUpdatedData.deadline
-          .split("-")
-          .map(Number);
-        const localDateAtMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
-        if (isNaN(localDateAtMidnight.getTime())) {
-          throw new Error("Invalid date components");
-        }
-        newDeadlineForStateAndFirestore =
-          FirestoreTimestamp.fromDate(localDateAtMidnight);
-        firestoreUpdateData.deadline = newDeadlineForStateAndFirestore;
-      } catch (e) {
-        console.error(
-          "Invalid date format for deadline update:",
-          clientUpdatedData.deadline,
-          e
-        );
-        setDbError("Invalid deadline date for update. Please use YYYY-MM-DD.");
-        return false;
-      }
-    } else if (
-      clientUpdatedData.deadline === "" ||
-      clientUpdatedData.deadline === null
-    ) {
-      firestoreUpdateData.deadline = null;
-      newDeadlineForStateAndFirestore = null;
-    } else {
-      // If deadline wasn't in clientUpdatedData as a string, it means it wasn't changed by the date input.
-      // We should use the existing deadline from selectedTaskForDetail for the state update,
-      // and not include 'deadline' in firestoreUpdateData unless it was explicitly cleared.
-      newDeadlineForStateAndFirestore = selectedTaskForDetail?.deadline || null;
-      if (!("deadline" in clientUpdatedData)) {
-        // Only delete if key 'deadline' is totally absent
-        delete firestoreUpdateData.deadline;
-      } else if (
-        clientUpdatedData.deadline === undefined &&
-        selectedTaskForDetail?.deadline
+    let newDeadlineForStateAndFirestore =
+      selectedTaskForDetail?.deadline || null;
+    if ("deadline" in clientUpdatedData) {
+      if (
+        clientUpdatedData.deadline &&
+        typeof clientUpdatedData.deadline === "string"
       ) {
-        // If clientUpdatedData.deadline is explicitly undefined (should not happen from form string)
-        // keep existing, don't send to firestore unless nulling
-        firestoreUpdateData.deadline = selectedTaskForDetail.deadline;
+        try {
+          const parsedTs = parseDateStringToTimestamp(
+            clientUpdatedData.deadline
+          );
+          if (parsedTs === null && clientUpdatedData.deadline !== "")
+            throw new Error("Parsed deadline is null");
+          newDeadlineForStateAndFirestore = parsedTs;
+          firestoreUpdateData.deadline = newDeadlineForStateAndFirestore;
+        } catch (e) {
+          console.error(
+            "Invalid date for deadline update:",
+            clientUpdatedData.deadline,
+            e
+          );
+          setDbError("Invalid deadline date.");
+          return false;
+        }
+      } else if (
+        clientUpdatedData.deadline === "" ||
+        clientUpdatedData.deadline === null
+      ) {
+        firestoreUpdateData.deadline = null;
+        newDeadlineForStateAndFirestore = null;
       }
     }
-
     const taskDocRef = doc(
       db,
       `artifacts/${currentAppId}/users/${currentUser.uid}/tasks`,
       taskId
     );
-
     setDbError(null);
     try {
       await setDoc(taskDocRef, firestoreUpdateData, { merge: true });
-
       if (selectedTaskForDetail && selectedTaskForDetail.id === taskId) {
         setSelectedTaskForDetail((prevTask) => ({
           ...prevTask,
-          ...clientUpdatedData, // Contains title, description, status, isImportant, isUrgent as changed by user
-          deadline: newDeadlineForStateAndFirestore, // Use the newly formed Timestamp (or null) for state
+          ...clientUpdatedData,
+          deadline: newDeadlineForStateAndFirestore,
         }));
       }
       return true;
@@ -370,7 +320,6 @@ function App() {
       return false;
     }
   };
-
 
   const executeDeleteTask = async () => {
     if (!currentUser || !db || !taskToConfirmDeleteId) {
@@ -596,7 +545,6 @@ function App() {
                   onEditRequest={openEditTaskModal}
                   onDeleteRequest={requestDeleteConfirmation}
                   columns={KANBAN_COLUMNS}
-                  onMoveTask={handleMoveTask} // Kept if needed, but status change is likely moving to modal
                 />
               ))}
             </div>
@@ -606,7 +554,5 @@ function App() {
     </div>
   );
 }
-
-export { KANBAN_COLUMNS };
 
 export default App;

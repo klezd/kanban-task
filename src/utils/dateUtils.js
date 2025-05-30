@@ -5,7 +5,7 @@ import {
   // isPast,
   addDays,
 } from "date-fns";
-
+import { Timestamp as FirestoreTimestamp } from "firebase/firestore";
 export function formatDeadlineDisplay(deadlineTimestamp) {
   if (!deadlineTimestamp || !deadlineTimestamp.toDate) {
     return "No Deadline";
@@ -76,3 +76,26 @@ export function isDeadlineUrgent(deadlineTimestamp, urgencyThresholdDays = 3) {
     normalizedDeadlineDate < thresholdDate
   );
 }
+
+export const parseDateStringToTimestamp = (dateString) => {
+  if (!dateString) return null;
+  try {
+    const [year, month, day] = dateString.split("-").map(Number);
+    const localDateAtMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
+    if (isNaN(localDateAtMidnight.getTime()))
+      throw new Error("Invalid date components");
+    return FirestoreTimestamp.fromDate(localDateAtMidnight);
+  } catch (e) {
+    console.error("Error parsing date string to Timestamp:", dateString, e);
+    return null;
+  }
+};
+
+export const getLocalDateInputString = (timestamp) => {
+  if (!timestamp || !timestamp.toDate) return "";
+  const date = timestamp.toDate();
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};

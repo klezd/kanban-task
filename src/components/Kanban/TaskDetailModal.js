@@ -2,16 +2,23 @@
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { Modal } from "../common";
-import { KANBAN_COLUMNS } from "../../App";
 import {
   Edit2 as EditIcon,
   Trash2 as DeleteIcon,
   XSquare as CloseIcon,
   Save as SaveIcon,
   Loader2 as SpinnerIcon,
+  PlusCircle as AddSubtaskIcon,
+  Trash2 as DeleteSubtaskIcon,
 } from "lucide-react";
 
-import { formatDeadlineDisplay, isDeadlineUrgent } from "../../utils/dateUtils";
+import {
+  formatDeadlineDisplay,
+  getLocalDateInputString,
+  isDeadlineUrgent,
+  parseDateStringToTimestamp,
+} from "../../utils/dateUtils";
+import { KANBAN_COLUMNS, MAX_CHECKLIST_ITEMS } from "../../utils/constants";
 
 const TaskDetailModal = ({
   isOpen,
@@ -36,6 +43,9 @@ const TaskDetailModal = ({
     useState(false);
 
   const [originalDeadline, setOriginalDeadline] = useState("");
+  // State for checklist items in edit mode
+  const [editChecklist, setEditChecklist] = useState([]);
+  const [newSubtaskText, setNewSubtaskText] = useState("");
 
   // Populate form state when task changes or when entering edit mode
   useEffect(() => {
@@ -43,28 +53,18 @@ const TaskDetailModal = ({
       setEditTitle(task.title || "");
       setEditDescription(task.description || "");
       setEditStatus(task.status || KANBAN_COLUMNS[0]);
-
-      const deadlineDateObj = task.deadline?.toDate
-        ? task.deadline.toDate()
-        : null;
-      let deadlineString = "";
-      if (deadlineDateObj) {
-        const year = deadlineDateObj.getFullYear();
-        const month = (deadlineDateObj.getMonth() + 1)
-          .toString()
-          .padStart(2, "0");
-        const day = deadlineDateObj.getDate().toString().padStart(2, "0");
-        deadlineString = `${year}-${month}-${day}`;
-      }
-      setEditDeadline(deadlineString);
-      setOriginalDeadline(deadlineString); // Also update originalDeadline here
-
+      const dlStr = getLocalDateInputString(task.deadline);
+      setEditDeadline(dlStr);
+      setOriginalDeadline(dlStr);
       setEditIsImportant(task.isImportant || false);
-      setEditIsUrgent(task.isUrgent || false); // This will be updated by the deadline-watching effect if isEditing
+      setEditIsUrgent(task.isUrgent || false);
       setEditHasManuallySetUrgency(task.hasManuallySetUrgency || false);
+      setEditChecklist(
+        task.checklist ? JSON.parse(JSON.stringify(task.checklist)) : []
+      );
       setSaveError("");
     }
-  }, [task]); // Depend only on the task prop
+  }, [task]);
 
   // Effect to set initial edit mode when the modal is opened
   useEffect(() => {
@@ -81,106 +81,113 @@ const TaskDetailModal = ({
     }
   }, [initialEditMode, task]);
 
-  // This effect makes isUrgent checkbox reactive to deadline changes
-  // useEffect(() => {
-  //   if (isEditing && editDeadline) {
-  //     const [year, month, day] = editDeadline.split("-").map(Number);
-  //     const deadlineDateForUrgencyCheck = {
-  //       toDate: () => new Date(year, month - 1, day, 0, 0, 0, 0),
-  //     };
-  //     if (!isNaN(deadlineDateForUrgencyCheck.toDate().getTime())) {
-  //       setEditIsUrgent(isDeadlineUrgent(deadlineDateForUrgencyCheck));
-  //     } else {
-  //       setEditIsUrgent(false);
-  //     }
-  //   } else if (isEditing && !editDeadline) {
-  //     setEditIsUrgent(false);
-  //   }
-  // }, [editDeadline, isEditing]);
-
   // Function to handle changes to the deadline input
   const handleDeadlineChange = (e) => {
     const newDeadlineString = e.target.value;
     setEditDeadline(newDeadlineString);
-
-    // Only auto-update urgency if it hasn't been manually set by the user FOR THIS TASK
     if (!editHasManuallySetUrgency) {
       if (newDeadlineString) {
-        const [year, month, day] = newDeadlineString.split("-").map(Number);
-        const deadlineDateForUrgencyCheck = {
-          toDate: () => new Date(year, month - 1, day, 0, 0, 0, 0),
-        };
-        if (!isNaN(deadlineDateForUrgencyCheck.toDate().getTime())) {
-          setEditIsUrgent(isDeadlineUrgent(deadlineDateForUrgencyCheck));
-        } else {
-          setEditIsUrgent(false);
-        }
+        const dlTs = parseDateStringToTimestamp(newDeadlineString);
+        if (dlTs) setEditIsUrgent(isDeadlineUrgent(dlTs));
+        else setEditIsUrgent(false);
       } else {
         setEditIsUrgent(false);
       }
     }
   };
 
-  // Handler for the 'isUrgent' checkbox
   const handleIsUrgentChange = (e) => {
     setEditIsUrgent(e.target.checked);
-    setEditHasManuallySetUrgency(true); // User has manually interacted
+    setEditHasManuallySetUrgency(true);
   };
 
-  // Switch to edit mode
   const handleEdit = () => {
     if (task) {
-      // Ensure task data is loaded before populating edit fields
       setEditTitle(task.title || "");
       setEditDescription(task.description || "");
       setEditStatus(task.status || KANBAN_COLUMNS[0]);
-      const deadlineDateObj = task.deadline?.toDate
-        ? task.deadline.toDate()
-        : null;
-      let deadlineString = "";
-      if (deadlineDateObj) {
-        // 👇 Use the same robust local date part formatting here
-        const year = deadlineDateObj.getFullYear();
-        const month = (deadlineDateObj.getMonth() + 1)
-          .toString()
-          .padStart(2, "0");
-        const day = deadlineDateObj.getDate().toString().padStart(2, "0");
-        deadlineString = `${year}-${month}-${day}`;
-      }
-      setEditDeadline(deadlineString);
-      setOriginalDeadline(deadlineString);
+      const dlStr = getLocalDateInputString(task.deadline);
+      setEditDeadline(dlStr);
+      setOriginalDeadline(dlStr);
       setEditIsImportant(task.isImportant || false);
       setEditIsUrgent(task.isUrgent || false);
-      setEditHasManuallySetUrgency(task.hasManuallySetUrgency || false); // Initialize this too
+      setEditHasManuallySetUrgency(task.hasManuallySetUrgency || false);
+      setEditChecklist(
+        task.checklist ? JSON.parse(JSON.stringify(task.checklist)) : []
+      );
     }
     setIsEditing(true);
     setSaveError("");
   };
 
-  // Handle cancel from edit mode
   const handleCancelEdit = () => {
     setIsEditing(false);
     setSaveError("");
-    // Reset form fields to original task values when cancelling edit
     if (task) {
       setEditTitle(task.title || "");
       setEditDescription(task.description || "");
       setEditStatus(task.status || KANBAN_COLUMNS[0]);
-      const deadlineDate = task.deadline?.toDate
-        ? task.deadline.toDate()
-        : null;
-      let deadlineString = "";
-      if (deadlineDate) {
-        const year = deadlineDate.getFullYear();
-        const month = (deadlineDate.getMonth() + 1).toString().padStart(2, "0");
-        const day = deadlineDate.getDate().toString().padStart(2, "0");
-        deadlineString = `${year}-${month}-${day}`;
-      }
-      setEditDeadline(deadlineString);
+      const dlStr = getLocalDateInputString(task.deadline);
+      setEditDeadline(dlStr);
       setEditIsImportant(task.isImportant || false);
       setEditIsUrgent(task.isUrgent || false);
-      setEditHasManuallySetUrgency(task.hasManuallySetUrgency || false); // Reset this too
+      setEditHasManuallySetUrgency(task.hasManuallySetUrgency || false);
+      setEditChecklist(
+        task.checklist ? JSON.parse(JSON.stringify(task.checklist)) : []
+      );
     }
+  };
+
+  const handleAddSubtaskItem = () => {
+    if (newSubtaskText.trim() && editChecklist.length < MAX_CHECKLIST_ITEMS) {
+      setEditChecklist([
+        ...editChecklist,
+        {
+          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          text: newSubtaskText.trim(),
+          isCompleted: false,
+        },
+      ]);
+      setNewSubtaskText("");
+    } else if (editChecklist.length >= MAX_CHECKLIST_ITEMS) {
+      console.warn("Max checklist items reached");
+    }
+  };
+  const handleDeleteSubtaskItem = (subtaskId) => {
+    setEditChecklist(editChecklist.filter((item) => item.id !== subtaskId));
+  };
+  const handleToggleSubtaskComplete = async (subtaskId) => {
+    let updatedChecklist;
+    if (isEditing) {
+      updatedChecklist = editChecklist.map((item) =>
+        item.id === subtaskId
+          ? { ...item, isCompleted: !item.isCompleted }
+          : item
+      );
+      setEditChecklist(updatedChecklist);
+    } else {
+      if (!task || !task.checklist) return;
+      updatedChecklist = task.checklist.map((item) =>
+        item.id === subtaskId
+          ? { ...item, isCompleted: !item.isCompleted }
+          : item
+      );
+      setIsSaving(true);
+      try {
+        await onSave(task.id, { checklist: updatedChecklist });
+      } catch (error) {
+        console.error("Error updating subtask status:", error);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+  const handleSubtaskTextChange = (subtaskId, newText) => {
+    setEditChecklist(
+      editChecklist.map((item) =>
+        item.id === subtaskId ? { ...item, text: newText } : item
+      )
+    );
   };
 
   const handleSaveChanges = async () => {
@@ -191,48 +198,35 @@ const TaskDetailModal = ({
     }
     setSaveError("");
     setIsSaving(true);
-
     const deadlineChanged = editDeadline !== originalDeadline;
-    // ... (deadline change warning logic, e.g., simple console.warn for now)
     if (deadlineChanged && editDeadline !== "" && originalDeadline !== "") {
-      console.warn("Reminder: Deadline for this task was changed.");
+      console.warn("Reminder: Deadline was changed.");
     }
-
     const updatedData = {
       title: editTitle,
       description: editDescription,
       status: editStatus,
-      deadline: editDeadline, // "YYYY-MM-DD" string or empty string
+      deadline: editDeadline,
       isImportant: editIsImportant,
       isUrgent: editIsUrgent,
-      hasManuallySetUrgency: editHasManuallySetUrgency, // Pass this to be saved
+      hasManuallySetUrgency: editHasManuallySetUrgency,
+      checklist: editChecklist,
     };
     try {
-      const success = await onSave(task.id, updatedData); // onSave should return true on success
+      const success = await onSave(task.id, updatedData);
       if (success) {
-        setIsEditing(false); // Switch to view mode
-      } else {
-        // If onSave returns false or doesn't throw, error was handled in App.js
-        // but we might want a generic message here if no specific one came from App.js
-        // For now, assume App.js sets a global error if onSave returns false.
-        // If onSave throws, the catch block below will handle it.
-        if (!saveError)
-          setSaveError("Failed to save. Please check console or app errors.");
+        setIsEditing(false);
       }
     } catch (error) {
-      // Should not happen if onSave returns boolean, but good practice
-      console.error("Critical error during save operation:", error);
-      setSaveError("A critical error occurred. Please try again.");
+      console.error("Error saving task:", error);
+      setSaveError("Failed to save. Please try again.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = () => {
-    if (task) {
-      onDeleteRequest(task.id); // This will open ConfirmationModal from App.js
-      // onClose(); // Confirmation modal will handle closing logic from App.js
-    }
+    if (task) onDeleteRequest(task.id);
   };
 
   const formatDate = (timestamp, includeTime = false) => {
@@ -246,9 +240,7 @@ const TaskDetailModal = ({
     return date.toLocaleDateString(undefined, options);
   };
 
-  const modalTitle = isEditing
-    ? `Edit: ${task?.title || "Task"}`
-    : task?.title || "Task Details";
+  const modalTitle = isEditing ? `Edit Task` : task?.title || "Task Details";
 
   // ---- MODAL FOOTER BUTTONS ----
   let footer;
@@ -318,7 +310,7 @@ const TaskDetailModal = ({
           className={`${baseButtonClass} sm:order-2  bg-spearmint-100 text-olive-green-700 border-spearmint-300 hover:bg-spearmint-200 focus:ring-spearmint-400`}
         >
           <CloseIcon size={16} className="mr-0 sm:mr-2" />
-          <span className={buttonTextSpanClass}>Cancel </span>
+          <span className={buttonTextSpanClass}>Close </span>
         </button>
         <button
           type="button"
@@ -337,7 +329,7 @@ const TaskDetailModal = ({
   if (!task && isOpen) {
     modalBody = <p className="text-olive-green-600">Loading task details...</p>;
   } else if (isEditing) {
-    // EDIT MODE FORM
+    // Edit mode
     modalBody = (
       <form
         onSubmit={(e) => {
@@ -351,15 +343,13 @@ const TaskDetailModal = ({
             {saveError}
           </p>
         )}
-
-        {/* Prevent default for direct button click too */}
         <div className="space-y-4">
           <div>
             <label
               htmlFor="editTaskTitle"
               className="block text-sm font-medium text-olive-green-700 mb-1"
             >
-              Title{" "}
+              Title
             </label>
             <input
               id="editTaskTitle"
@@ -375,7 +365,7 @@ const TaskDetailModal = ({
               htmlFor="editTaskDescription"
               className="block text-sm font-medium text-olive-green-700 mb-1"
             >
-              Description{" "}
+              Description
             </label>
             <textarea
               id="editTaskDescription"
@@ -389,7 +379,7 @@ const TaskDetailModal = ({
               htmlFor="editTaskStatus"
               className="block text-sm font-medium text-olive-green-700 mb-1"
             >
-              Status{" "}
+              Status
             </label>
             <select
               id="editTaskStatus"
@@ -409,15 +399,15 @@ const TaskDetailModal = ({
               htmlFor="editTaskDeadline"
               className="block text-sm font-medium text-olive-green-700 mb-1"
             >
-              Deadline{" "}
+              Deadline
             </label>
             <input
               id="editTaskDeadline"
               type="date"
               value={editDeadline}
-              onChange={handleDeadlineChange} // Use the new handler
+              onChange={handleDeadlineChange}
               className="w-full p-3 border border-spearmint-300 rounded-lg focus:ring-2 focus:ring-misty-blue-400 focus:border-misty-blue-500"
-              min={new Date().toISOString().split("T")[0]}
+              min={getLocalDateInputString(new Date())}
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -433,7 +423,7 @@ const TaskDetailModal = ({
                 htmlFor="editTaskImportant"
                 className="ml-2 text-sm font-medium text-olive-green-700 cursor-pointer"
               >
-                Important{" "}
+                Important
               </label>
             </div>
             <div className="flex items-center p-2 rounded-md hover:bg-spearmint-100">
@@ -441,92 +431,196 @@ const TaskDetailModal = ({
                 id="editTaskUrgent"
                 type="checkbox"
                 checked={editIsUrgent}
-                onChange={handleIsUrgentChange} // Use the new handler for Urgent checkbox
+                onChange={handleIsUrgentChange}
                 className="h-5 w-5 text-tangerine-500 border-spearmint-300 rounded focus:ring-tangerine-400 cursor-pointer"
               />
               <label
                 htmlFor="editTaskUrgent"
                 className="ml-2 text-sm font-medium text-olive-green-700 cursor-pointer"
               >
-                Urgent{" "}
+                Urgent
               </label>
             </div>
           </div>
-          {/* Read-only fields displayed for context */}
+          <hr className="border-spearmint-200 my-3" />
+          <div>
+            <h3 className="text-sm font-medium text-olive-green-700 mb-2">
+              Checklist Items
+            </h3>
+            {editChecklist.map((item, index) => (
+              <div
+                key={item.id}
+                className="flex items-center mb-2 space-x-2 p-1.5 bg-spearmint-50 rounded"
+              >
+                <input
+                  type="checkbox"
+                  id={`edit-subtask-check-${item.id}`}
+                  checked={item.isCompleted}
+                  onChange={() => handleToggleSubtaskComplete(item.id)}
+                  className="h-5 w-5 text-misty-blue-600 border-spearmint-300 rounded focus:ring-misty-blue-500 cursor-pointer flex-shrink-0"
+                />
+                <input
+                  type="text"
+                  value={item.text}
+                  onChange={(e) =>
+                    handleSubtaskTextChange(item.id, e.target.value)
+                  }
+                  className={`flex-grow p-1 text-sm rounded border ${
+                    item.isCompleted
+                      ? "line-through text-gray-500"
+                      : "text-olive-green-700"
+                  } border-transparent hover:border-spearmint-300 focus:border-misty-blue-300 focus:ring-1 focus:ring-misty-blue-300`}
+                  placeholder="Subtask description"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSubtaskItem(item.id)}
+                  className="p-1 text-red-500 hover:text-red-700 rounded-full hover:bg-red-100 flex-shrink-0"
+                  aria-label="Delete subtask item"
+                >
+                  <DeleteSubtaskIcon size={16} />
+                </button>
+              </div>
+            ))}
+            {editChecklist.length < MAX_CHECKLIST_ITEMS && (
+              <div className="flex items-center mt-2 space-x-2">
+                <input
+                  type="text"
+                  value={newSubtaskText}
+                  onChange={(e) => setNewSubtaskText(e.target.value)}
+                  placeholder="Add new item..."
+                  className="w-full flex-grow p-2 border border-spearmint-300 rounded-lg focus:ring-2 focus:ring-misty-blue-400"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddSubtaskItem();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddSubtaskItem}
+                  className="p-2 bg-misty-blue-400 text-white rounded-lg hover:bg-misty-blue-500 transition-colors flex-shrink-0"
+                  aria-label="Add subtask item"
+                >
+                  <AddSubtaskIcon size={20} />
+                </button>
+              </div>
+            )}
+            {editChecklist.length >= MAX_CHECKLIST_ITEMS && (
+              <p className="text-xs text-tangerine-600 mt-1">
+                Max checklist items reached.
+              </p>
+            )}
+          </div>
           <div className="text-xs text-olive-green-500 mt-3">
-            <p>Created: {formatDate(task.createdAt)} by You</p>
-            {/* Simplified author */}
-            {/* <p>Assigned to: You</p> */}
-            {/* assigneeIds not directly editable for personal tasks */}
+            <p>
+              Created:{" "}
+              {task?.createdAt ? formatDeadlineDisplay(task.createdAt) : "N/A"}{" "}
+              by You
+            </p>
           </div>
         </div>
       </form>
     );
   } else if (task) {
-    // VIEW MODE DISPLAY
+    // View mode
     modalBody = (
-      <div className="space-y-3 text-sm text-olive-green-700">
-        {task.description && (
-          <p>
-            <strong className="text-olive-green-600">Description: </strong>
-            <span className="whitespace-pre-wrap">{task.description}</span>
-          </p>
-        )}
-        <p>
-          <strong className="text-olive-green-600">Status: </strong>
+      <div className="space-y-3">
+        <div className="flex items-center space-x-3 mb-3">
           <span
-            className={`px-2 py-0.5 rounded-full text-xs ${
+            className={`px-3 py-1 text-sm font-semibold rounded-full ${
               task.status === "Done"
-                ? "bg-olive-green-100 text-olive-green-700"
-                : "bg-spearmint-100 text-spearmint-700"
+                ? "bg-olive-green-200 text-olive-green-800"
+                : "bg-spearmint-200 text-olive-green-700"
             }`}
           >
             {task.status}
           </span>
-        </p>
-        <p>
-          <strong className="text-olive-green-600">Deadline: </strong>
-          {formatDeadlineDisplay(task.deadline)}
-        </p>
-        <p>
-          <strong className="text-olive-green-600">Important: </strong>
-          {task.isImportant ? (
-            <span className="text-tangerine-700 font-semibold">Yes</span>
-          ) : (
-            "No"
+          {(task.isImportant || task.isUrgent) && (
+            <>
+              {" "}
+              {task.isImportant && (
+                <span className="font-semibold px-3 py-1 rounded-full bg-tangerine-100 text-tangerine-800">
+                  Important
+                </span>
+              )}{" "}
+              {task.isUrgent && (
+                <span className="font-semibold px-3 py-1 rounded-full bg-red-100 text-red-700">
+                  Urgent
+                </span>
+              )}
+            </>
           )}
-        </p>
-        <p>
-          <strong className="text-olive-green-600">Urgent: </strong>
-          {task.isUrgent ? (
-            <span className="text-red-700 font-semibold">Yes</span>
-          ) : (
-            "No"
-          )}
-        </p>
-        <hr className="border-spearmint-200 my-2" />
-        <p className="text-xs text-olive-green-500">
-          <strong className="text-olive-green-600">Created: </strong>{" "}
-          {formatDate(task.createdAt, true)}
-        </p>
-        <p className="text-xs text-olive-green-500">
-          <strong className="text-olive-green-600">Author: </strong> You
-        </p>
-        <p className="text-xs text-olive-green-500">
-          <strong className="text-olive-green-600">Assigned to: </strong> You
-        </p>
+        </div>
+        {task.description && (
+          <p className="text-sm text-olive-green-700 whitespace-pre-wrap">
+            <strong className="text-olive-green-600 block mb-1">
+              Description:
+            </strong>
+            {task.description}
+          </p>
+        )}
+        {task.checklist && task.checklist.length > 0 && (
+          <div className="mt-3">
+            <h3 className="text-sm font-medium text-olive-green-700 mb-1">
+              Checklist ({task.checklist.filter((i) => i.isCompleted).length}/
+              {task.checklist.length})
+            </h3>
+            <div className="space-y-1">
+              {task.checklist.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center p-1.5 hover:bg-spearmint-100 rounded group"
+                >
+                  <input
+                    type="checkbox"
+                    id={`view-subtask-check-${item.id}`}
+                    checked={item.isCompleted}
+                    onChange={() => handleToggleSubtaskComplete(item.id)}
+                    className="h-4 w-4 text-misty-blue-600 border-spearmint-300 rounded focus:ring-misty-blue-500 cursor-pointer flex-shrink-0"
+                    disabled={isSaving}
+                  />
+                  <label
+                    htmlFor={`view-subtask-check-${item.id}`}
+                    className={`ml-2 text-sm flex-grow cursor-pointer ${
+                      item.isCompleted
+                        ? "line-through text-olive-green-500"
+                        : "text-olive-green-700"
+                    }`}
+                  >
+                    {item.text}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="p-3 bg-spearmint-50 rounded-lg space-y-1 text-xs text-olive-green-700">
+          <p>
+            <strong className="text-olive-green-600">Deadline:</strong>{" "}
+            {formatDeadlineDisplay(task.deadline)}
+          </p>
+          <hr className="border-spearmint-200 my-1.5" />
+          <p>
+            <strong className="text-olive-green-600">Created:</strong>{" "}
+            {task.createdAt ? formatDeadlineDisplay(task.createdAt) : "N/A"}
+          </p>{" "}
+          <p>
+            <strong className="text-olive-green-600">Author:</strong> You{" "}
+          </p>
+          <p>
+            <strong className="text-olive-green-600">Assigned to:</strong> You
+          </p>
+        </div>
       </div>
     );
   } else {
     modalBody = <p className="text-olive-green-600">No task data available.</p>;
   }
 
-  // Determine modal size based on mobile view (full screen) vs desktop
-  // The generic Modal 'size' prop can be 'full' for mobile, or 'lg'/'xl' for desktop
-  // This logic can be enhanced in App.js when calling TaskDetailModal
   const [modalSize, setModalSize] = useState("lg");
   useEffect(() => {
-    /* ... same responsive modal size logic ... */
     const updateSize = () => {
       setModalSize(window.innerWidth < 768 ? "full" : "lg");
     };
@@ -534,17 +628,14 @@ const TaskDetailModal = ({
     updateSize();
     return () => window.removeEventListener("resize", updateSize);
   }, []);
-
   return (
     <Modal
       isOpen={isOpen}
-      onClose={isEditing ? handleCancelEdit : onClose} // Cancel edit or just close
+      onClose={isEditing ? handleCancelEdit : onClose}
       title={modalTitle}
-      size={modalSize} // Responsive size
-      footerContent={task ? footer : null} // Only show footer if task is loaded
-      // For mobile, the generic Modal's 'X' in header will act as close/cancel.
-      // Footer buttons can be hidden on mobile if preferred, or styled to stack.
-      // The current footer uses flex-col sm:flex-row to stack buttons on small screens.
+      size={modalSize}
+      footerContent={task ? footer : null}
+      hideCloseButton={true}
     >
       {modalBody}
     </Modal>
@@ -559,14 +650,21 @@ TaskDetailModal.propTypes = {
     title: PropTypes.string,
     description: PropTypes.string,
     status: PropTypes.string,
-    createdAt: PropTypes.object, // Firestore Timestamp
+    createdAt: PropTypes.object,
     authorId: PropTypes.string,
-    deadline: PropTypes.object, // Firestore Timestamp or null
+    deadline: PropTypes.object,
     isImportant: PropTypes.bool,
     isUrgent: PropTypes.bool,
-    hasManuallySetUrgency: PropTypes.bool, // Add this to the shape
     assigneeIds: PropTypes.arrayOf(PropTypes.string),
-  }), // Task can be null initially
+    hasManuallySetUrgency: PropTypes.bool,
+    checklist: PropTypes.arrayOf(
+      PropTypes.shape({
+        id: PropTypes.string.isRequired,
+        text: PropTypes.string.isRequired,
+        isCompleted: PropTypes.bool.isRequired,
+      })
+    ),
+  }),
   onSave: PropTypes.func.isRequired,
   onDeleteRequest: PropTypes.func.isRequired,
   initialEditMode: PropTypes.bool,

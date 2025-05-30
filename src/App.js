@@ -1,6 +1,8 @@
+/* eslint-disable no-unused-vars */
 import React, { useState, useEffect } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 
+// Firebase
 import {
   doc,
   addDoc,
@@ -10,6 +12,7 @@ import {
   collection,
   query,
   serverTimestamp,
+  Timestamp as FirestoreTimestamp,
 } from "firebase/firestore";
 import {
   auth,
@@ -18,13 +21,16 @@ import {
   googleProvider,
   signInWithPopup,
   signOut,
-} from "./config/firebaseConfig"; // Adjust path if needed
+} from "./config/firebaseConfig";
 
 import { Plus } from "lucide-react";
 
 import Confetti from "./components/Confetti";
-import { AddTaskForm, Column } from "./components/Kanban";
+import { AddTaskForm, Column, TaskDetailModal } from "./components/Kanban";
 import { Header } from "./components/Layout";
+import ConfirmationModal from "./components/common/ConfirmationModal";
+
+import { isDeadlineUrgent } from "./utils/dateUtils";
 
 // --- Kanban Columns ---
 const KANBAN_COLUMNS = ["Backlog", "To Do", "In Progress", "Done"];
@@ -40,6 +46,13 @@ function App() {
   const [authError, setAuthError] = useState(null);
   const [dbError, setDbError] = useState(null);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [taskToConfirmDeleteId, setTaskToConfirmDeleteId] = useState(null);
+  // For TaskDetailModal (View/Edit)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedTaskForDetail, setSelectedTaskForDetail] = useState(null);
+  const [detailModalEditMode, setDetailModalEditMode] = useState(false);
+
   // Firebase auth listener
   useEffect(() => {
     if (!auth) {
@@ -188,23 +201,67 @@ function App() {
     return () => unsubscribeFirestore();
   }, [isAuthReady, currentUserId]);
 
-  const handleAddTask = async (title, description) => {
-    if (!currentUserId || !db) {
+  const handleAddTask = async (taskData) => {
+    // Expects an object: { title, description, deadline, isImportant, isUrgent }
+    if (!currentUser || !db) {
       setDbError("Cannot add task: Not connected or user not signed in.");
       return;
     }
 
-    const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUserId}/tasks`;
+    const {
+      title,
+      description,
+      deadline: deadlineString,
+      isImportant,
+      isUrgent: userSetValueForIsUrgent,
+    } = taskData;
+
+    let deadlineTimestamp = null;
+    let calculatedIsUrgent = false; // Default for auto-calculation
+
+    if (deadlineString) {
+      // Check if deadlineString is not empty
+      try {
+        const [year, month, day] = deadlineString.split("-").map(Number);
+        // Ensure month is 0-indexed for new Date()
+        const localDateAtMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
+        if (isNaN(localDateAtMidnight.getTime())) {
+          // Check for invalid date
+          throw new Error("Invalid date components");
+        }
+        deadlineTimestamp = FirestoreTimestamp.fromDate(localDateAtMidnight);
+        calculatedIsUrgent = isDeadlineUrgent({
+          toDate: () => localDateAtMidnight,
+        }); // Assuming isDeadlineUrgent is available or imported
+      } catch (e) {
+        console.error("Invalid date format for deadline:", deadlineString, e);
+        setDbError("Invalid deadline date provided. Please use YYYY-MM-DD.");
+        return false; // Indicate failure
+      }
+    }
+
+    const tasksCollectionPath = `artifacts/${currentAppId}/users/${currentUser.uid}/tasks`;
+    setDbError(null);
     try {
       await addDoc(collection(db, tasksCollectionPath), {
         title,
-        description,
-        status: KANBAN_COLUMNS[0], // Default to Backlog
+        description: description || "",
+        status: KANBAN_COLUMNS[0],
         createdAt: serverTimestamp(),
+        authorId: currentUser.uid,
+        deadline: deadlineTimestamp,
+        isImportant: isImportant || false,
+        isUrgent: userSetValueForIsUrgent, // This now comes from the form's state which might have been auto-set by deadline change
+        hasManuallySetUrgency: false, // NEW: Always false on task creation initially
+
+        assigneeIds: [currentUser.uid],
       });
+      setIsAddTaskModalOpen(false);
+      return true; // Indicate success
     } catch (e) {
       console.error("Error adding task: ", e);
       setDbError("Failed to add task.");
+      return false; // Indicate failure
     }
   };
 
@@ -232,56 +289,132 @@ function App() {
     }
   };
 
-  const handleEditTask = async (taskId, updatedData) => {
-    if (!currentUserId || !db) {
-      console.error(
-        "User not authenticated or DB not available for editing task."
-      );
-      setDbError("Cannot edit task: Not connected.");
+  const handleUpdateTask = async (taskId, clientUpdatedData) => {
+    if (!currentUser || !db) {
+      setDbError("Cannot update task: Not connected.");
+      return;
+    }
+    const firestoreUpdateData = { ...clientUpdatedData };
+    let newDeadlineForState = null; // This will be Timestamp or null
+    let newDeadlineForStateAndFirestore = null;
+
+    if (
+      clientUpdatedData.deadline &&
+      typeof clientUpdatedData.deadline === "string"
+    ) {
+      try {
+        const [year, month, day] = clientUpdatedData.deadline
+          .split("-")
+          .map(Number);
+        const localDateAtMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
+        if (isNaN(localDateAtMidnight.getTime())) {
+          throw new Error("Invalid date components");
+        }
+        newDeadlineForStateAndFirestore =
+          FirestoreTimestamp.fromDate(localDateAtMidnight);
+        firestoreUpdateData.deadline = newDeadlineForStateAndFirestore;
+      } catch (e) {
+        console.error(
+          "Invalid date format for deadline update:",
+          clientUpdatedData.deadline,
+          e
+        );
+        setDbError("Invalid deadline date for update. Please use YYYY-MM-DD.");
+        return false;
+      }
+    } else if (
+      clientUpdatedData.deadline === "" ||
+      clientUpdatedData.deadline === null
+    ) {
+      firestoreUpdateData.deadline = null;
+      newDeadlineForStateAndFirestore = null;
+    } else {
+      // If deadline wasn't in clientUpdatedData as a string, it means it wasn't changed by the date input.
+      // We should use the existing deadline from selectedTaskForDetail for the state update,
+      // and not include 'deadline' in firestoreUpdateData unless it was explicitly cleared.
+      newDeadlineForStateAndFirestore = selectedTaskForDetail?.deadline || null;
+      if (!("deadline" in clientUpdatedData)) {
+        // Only delete if key 'deadline' is totally absent
+        delete firestoreUpdateData.deadline;
+      } else if (
+        clientUpdatedData.deadline === undefined &&
+        selectedTaskForDetail?.deadline
+      ) {
+        // If clientUpdatedData.deadline is explicitly undefined (should not happen from form string)
+        // keep existing, don't send to firestore unless nulling
+        firestoreUpdateData.deadline = selectedTaskForDetail.deadline;
+      }
+    }
+
+    const taskDocRef = doc(
+      db,
+      `artifacts/${currentAppId}/users/${currentUser.uid}/tasks`,
+      taskId
+    );
+
+    setDbError(null);
+    try {
+      await setDoc(taskDocRef, firestoreUpdateData, { merge: true });
+
+      if (selectedTaskForDetail && selectedTaskForDetail.id === taskId) {
+        setSelectedTaskForDetail((prevTask) => ({
+          ...prevTask,
+          ...clientUpdatedData, // Contains title, description, status, isImportant, isUrgent as changed by user
+          deadline: newDeadlineForStateAndFirestore, // Use the newly formed Timestamp (or null) for state
+        }));
+      }
+      return true;
+    } catch (e) {
+      console.error("Error updating task: ", e);
+      setDbError("Failed to update task.");
+      return false;
+    }
+  };
+
+
+  const executeDeleteTask = async () => {
+    if (!currentUser || !db || !taskToConfirmDeleteId) {
+      setDbError("Cannot delete task: Missing information.");
+      setIsConfirmModalOpen(false);
+      setTaskToConfirmDeleteId(null);
       return;
     }
     const taskDocRef = doc(
       db,
-      `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
-      taskId
+      `artifacts/${currentAppId}/users/${currentUser.uid}/tasks`,
+      taskToConfirmDeleteId
     );
+    setDbError(null);
     try {
-      await setDoc(
-        taskDocRef,
-        {
-          title: updatedData.title,
-          description: updatedData.description,
-        },
-        { merge: true }
-      );
+      await deleteDoc(taskDocRef);
     } catch (e) {
-      console.error("Error editing task: ", e);
-      setDbError("Failed to edit task.");
+      console.error("Error deleting task: ", e);
+      setDbError("Failed to delete task.");
+    } finally {
+      setIsConfirmModalOpen(false);
+      setTaskToConfirmDeleteId(null);
     }
   };
 
-  const handleDeleteTask = async (taskId) => {
-    if (!currentUserId || !db) {
-      console.error(
-        "User not authenticated or DB not available for deleting task."
-      );
-      setDbError("Cannot delete task: Not connected.");
-      return;
-    }
-    // A simple confirmation before deleting. Replace with a modal for better UX.
-    if (window.confirm("Are you sure you want to delete this task?")) {
-      const taskDocRef = doc(
-        db,
-        `artifacts/${currentAppId}/users/${currentUserId}/tasks`,
-        taskId
-      );
-      try {
-        await deleteDoc(taskDocRef);
-      } catch (e) {
-        console.error("Error deleting task: ", e);
-        setDbError("Failed to delete task.");
-      }
-    }
+  const requestDeleteConfirmation = (taskId) => {
+    setTaskToConfirmDeleteId(taskId);
+    setIsConfirmModalOpen(true);
+  };
+
+  const openViewTaskModal = (task) => {
+    setSelectedTaskForDetail(task);
+    setDetailModalEditMode(false);
+    setIsDetailModalOpen(true);
+  };
+  const openEditTaskModal = (task) => {
+    setSelectedTaskForDetail(task);
+    setDetailModalEditMode(true);
+    setIsDetailModalOpen(true);
+  };
+  const closeDetailModal = () => {
+    setIsDetailModalOpen(false);
+    setSelectedTaskForDetail(null);
+    setDetailModalEditMode(false);
   };
 
   const handleConfettiEnd = () => {
@@ -369,32 +502,101 @@ function App() {
             setIsModalOpen={setIsAddTaskModalOpen}
           />
 
-          {isLoading && (
-            <div className="text-center py-5">Loading tasks...</div>
-          )}
+          <ConfirmationModal
+            isOpen={isConfirmModalOpen}
+            onClose={() => {
+              setIsConfirmModalOpen(false);
+              setTaskToConfirmDeleteId(null);
+            }}
+            onConfirm={executeDeleteTask}
+            title="Confirm Delete Task"
+            message={`Are you sure you want to delete this task? This action cannot be undone.`}
+            confirmText="Delete"
+            confirmButtonColor="bg-red-600 hover:bg-red-700"
+          />
 
-          {!isLoading && !tasks.length && (
-            <div className="text-center text-gray-500 py-10">
-              <p className="text-xl">No tasks yet!</p>
-              <p>Click &#8220;Add New Task&#8220; to get started.</p>
+          {/* Placeholder for TaskDetailModal - to be built next */}
+          {isDetailModalOpen && selectedTaskForDetail && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center p-4">
+              <div className="bg-white p-6 md:p-8 rounded-lg shadow-xl w-full max-w-xl">
+                <h2 className="text-xl font-semibold text-olive-green-700 mb-4">
+                  Task Detail/Edit (Placeholder)
+                </h2>
+                <p>
+                  <span className="font-medium">Title:</span>{" "}
+                  {selectedTaskForDetail.title}
+                </p>
+                <p>
+                  <span className="font-medium">Status:</span>{" "}
+                  {selectedTaskForDetail.status}
+                </p>
+                <p>
+                  <span className="font-medium">Deadline:</span>{" "}
+                  {selectedTaskForDetail.deadline?.toDate
+                    ? selectedTaskForDetail.deadline
+                        .toDate()
+                        .toLocaleDateString()
+                    : "Not set"}
+                </p>
+                <p>
+                  <span className="font-medium">Important:</span>{" "}
+                  {selectedTaskForDetail.isImportant ? "Yes" : "No"}
+                </p>
+                <p>
+                  <span className="font-medium">Urgent:</span>{" "}
+                  {selectedTaskForDetail.isUrgent ? "Yes" : "No"}
+                </p>
+                <p className="mt-2">
+                  <span className="font-medium">Mode:</span>{" "}
+                  {detailModalEditMode ? "Editing" : "Viewing"}
+                </p>
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={closeDetailModal}
+                    className="py-2 px-4 bg-spearmint-200 text-olive-green-700 rounded-lg hover:bg-spearmint-300"
+                  >
+                    Close Placeholder
+                  </button>
+                </div>
+                {/* Actual TaskDetailModal will be rendered here */}
+                {isDetailModalOpen && selectedTaskForDetail && (
+                  <TaskDetailModal
+                    isOpen={isDetailModalOpen}
+                    onClose={closeDetailModal}
+                    task={selectedTaskForDetail}
+                    onSave={handleUpdateTask} // Your existing function, ensure it handles new fields
+                    onDeleteRequest={requestDeleteConfirmation} // Your existing function
+                    initialEditMode={detailModalEditMode}
+                  />
+                )}
+              </div>
             </div>
           )}
 
+          {isLoading && (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-misty-blue-500"></div>
+              <p className="ml-3 text-olive-green-600">Loading tasks...</p>
+            </div>
+          )}
+          {!isLoading && !tasks.length && (
+            <div className="text-center text-olive-green-600 py-10">
+              <p className="text-xl">No tasks yet!</p>
+              <p>Click &#34;Add New Task&#34; to get started.</p>
+            </div>
+          )}
           {!isLoading && tasks.length > 0 && (
-            <div className="flex flex-col gap-4 md:grid md:grid-cols-4 md:gap-6 pb-4">
+            <div className="flex flex-col md:grid md:grid-cols-4 md:gap-6 pb-4">
               {KANBAN_COLUMNS.map((columnName) => (
                 <Column
                   key={columnName}
                   title={columnName}
                   tasks={tasks.filter((task) => task.status === columnName)}
-                  onMoveTask={(taskId, newStatus) =>
-                    handleMoveTask(taskId, newStatus)
-                  }
-                  onDeleteTask={(taskId) => handleDeleteTask(taskId)}
-                  onEditTask={(taskId, updatedData) =>
-                    handleEditTask(taskId, updatedData)
-                  }
+                  onViewTask={openViewTaskModal}
+                  onEditRequest={openEditTaskModal}
+                  onDeleteRequest={requestDeleteConfirmation}
                   columns={KANBAN_COLUMNS}
+                  onMoveTask={handleMoveTask} // Kept if needed, but status change is likely moving to modal
                 />
               ))}
             </div>
@@ -404,5 +606,7 @@ function App() {
     </div>
   );
 }
+
+export { KANBAN_COLUMNS };
 
 export default App;

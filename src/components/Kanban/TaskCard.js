@@ -1,123 +1,118 @@
-import React, { useState, } from "react";
+import React from "react";
 import PropTypes from "prop-types";
-import { Timestamp } from "firebase/firestore";  
-import { ChevronDown,  Trash2, Edit3, Save, XCircle } from "lucide-react";
+import { Trash2 as DeleteIcon, Edit3 as EditIcon } from "lucide-react";
 
 // --- Task Card Component ---
-const TaskCard = ({ task, onMoveTask, onDeleteTask, onEditTask, columns }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(task.title);
-  const [editDescription, setEditDescription] = useState(task.description);
+const TaskCard = ({ task, onViewTask, onEditRequest, onDeleteRequest }) => {
+  if (!task) {
+    return null;
+  }
 
-  const handleSaveEdit = () => {
-    if (editTitle.trim() === "") {
-      // Basic validation: title should not be empty
-      alert("Task title cannot be empty."); // Replace with a modal in a real app
-      return;
+  const handleCardClick = (e) => {
+    let targetElement = e.target;
+    while (targetElement && targetElement !== e.currentTarget) {
+      if (targetElement.tagName === "BUTTON") {
+        return;
+      }
+      targetElement = targetElement.parentElement;
     }
-    onEditTask(task.id, { title: editTitle, description: editDescription });
-    setIsEditing(false);
+    onViewTask(task);
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp || !timestamp.toDate) return "N/A";
+    return timestamp.toDate().toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   };
 
   return (
-    <div className="bg-white p-3 mb-3 rounded-lg shadow-md border border-spearmint-200">
-      {isEditing ? (
-        <div className="space-y-2">
-          <input
-            type="text"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-            placeholder="Task Title"
-          />
-          <textarea
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 h-20"
-            placeholder="Task Description"
-          />
-          <div className="flex justify-end space-x-2">
-            <button
-              onClick={handleSaveEdit}
-              className="p-2 bg-tangerine-500 text-white rounded-md hover:bg-tangerine-600 flex items-center"
-            >
-              <Save size={16} className="mr-1" /> Save
-            </button>
-            <button
-              onClick={() => setIsEditing(false)}
-              className="p-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 flex items-center"
-            >
-              <XCircle size={16} className="mr-1" /> Cancel
-            </button>
-          </div>
+    <div
+      className="bg-white p-3 mb-3 rounded-lg shadow-md border border-spearmint-200 cursor-pointer hover:shadow-lg transition-shadow"
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") handleCardClick(e);
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={`View details for task: ${task.title}`}
+    >
+      <div className="flex justify-between items-start mb-2">
+        <h4 className="font-semibold text-olive-green-700 break-words mr-2 flex-grow">
+          {task.title}
+        </h4>
+        <div className="flex space-x-1 flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditRequest(task);
+            }}
+            className="p-1.5 text-misty-blue-600 hover:text-misty-blue-700 hover:bg-misty-blue-100 rounded-full"
+            title="Edit Task"
+            aria-label={`Edit task: ${task.title}`}
+          >
+            <EditIcon size={16} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteRequest(task.id);
+            }}
+            className="p-1.5 text-tangerine-600 hover:text-tangerine-700 hover:bg-tangerine-100 rounded-full"
+            title="Delete Task"
+            aria-label={`Delete task: ${task.title}`}
+          >
+            <DeleteIcon size={16} />
+          </button>
         </div>
-      ) : (
-        <>
-          <h4 className="font-semibold text-olive-green-700 break-words">
-            {task.title}
-          </h4>
-          <p className="text-sm text-olive-green-600 mt-1 break-words">
-            {task.description}
-          </p>
-          <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between items-center">
-            <div className="relative">
-              <select
-                value={task.status}
-                onChange={(e) => onMoveTask(task.id, e.target.value)}
-                className="text-xs bg-gray-100 p-1.5 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-misty-blue-400 pr-6"
-              >
-                {columns.map((col) => (
-                  <option key={col} value={col}>
-                    {col}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-1.5 top-1/2 transform -translate-y-1/2 text-gray-500 pointer-events-none"
-              />
-            </div>
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setIsEditing(true)}
-                className="p-1.5 text-misty-blue-600 hover:text-misty-blue-700 hover:bg-blue-100 rounded-full"
-                title="Edit Task"
-              >
-                <Edit3 size={16} />
-              </button>
-              <button
-                onClick={() => onDeleteTask(task.id)}
-                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full"
-                title="Delete Task"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          </div>
-        </>
+      </div>
+
+      {task.deadline && (
+        <p className="text-xs text-tangerine-700 mt-1">
+          Deadline: {formatDate(task.deadline)}
+        </p>
       )}
+      <p className="text-xs text-olive-green-600/80 mt-1">
+        Created: {formatDate(task.createdAt)}
+      </p>
+      {task.assigneeIds && task.assigneeIds.length > 0 && (
+        <p className="text-xs text-misty-blue-700 mt-1">Assigned to: You</p>
+      )}
+      <div className="mt-2 flex space-x-2">
+        {task.isImportant && (
+          <span className="text-xs px-2 py-0.5 bg-tangerine-100 text-tangerine-700 rounded-full">
+            Important
+          </span>
+        )}
+        {task.isUrgent && (
+          <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
+            Urgent
+          </span>
+        )}
+      </div>
     </div>
   );
 };
 
-// 👇 Define propTypes for TaskCard
 TaskCard.propTypes = {
   task: PropTypes.shape({
     id: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
-    description: PropTypes.string, // Assuming description can be optional
+    description: PropTypes.string,
     status: PropTypes.string.isRequired,
-    // Add other properties of task if they exist, e.g., createdAt
-    createdAt: PropTypes.oneOfType([
-      // Handle both Timestamp object and potential null/undefined before hydration
-      PropTypes.instanceOf(Timestamp),
-      PropTypes.object, // Could be a plain object before conversion or if not yet set
-    ]),
+    createdAt: PropTypes.object,
+    authorId: PropTypes.string,
+    deadline: PropTypes.object,
+    isImportant: PropTypes.bool,
+    isUrgent: PropTypes.bool,
+    assigneeIds: PropTypes.arrayOf(PropTypes.string),
   }).isRequired,
-  onMoveTask: PropTypes.func.isRequired,
-  onDeleteTask: PropTypes.func.isRequired,
-  onEditTask: PropTypes.func.isRequired,
-  columns: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onViewTask: PropTypes.func.isRequired,
+  onEditRequest: PropTypes.func.isRequired,
+  onDeleteRequest: PropTypes.func.isRequired,
 };
 
+// export default TaskCard;
 export default TaskCard;

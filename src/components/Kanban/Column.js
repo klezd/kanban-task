@@ -6,10 +6,9 @@ import TaskCard from "./TaskCard"; // Assuming TaskCard is in the same folder or
 const Column = ({
   title,
   tasks,
-  onMoveTask,
-  onDeleteTask,
-  onEditTask,
-  columns,
+  onViewTask,
+  onEditRequest,
+  onDeleteRequest,
 }) => {
   return (
     <div className="bg-spearmint-100 p-4 rounded-xl shadow-sm w-full">
@@ -24,10 +23,9 @@ const Column = ({
           <TaskCard
             key={task.id}
             task={task}
-            onMoveTask={onMoveTask}
-            onDeleteTask={onDeleteTask}
-            onEditTask={onEditTask}
-            columns={columns}
+            onViewTask={onViewTask}
+            onEditRequest={onEditRequest}
+            onDeleteRequest={onDeleteRequest}
           />
         ))}
       </div>
@@ -35,23 +33,25 @@ const Column = ({
   );
 };
 
-// 👇 Define propTypes for Column
+const taskShape = PropTypes.shape({
+  id: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  description: PropTypes.string,
+  status: PropTypes.string.isRequired,
+  createdAt: PropTypes.object, // Firestore Timestamp
+  authorId: PropTypes.string,
+  deadline: PropTypes.object, // Firestore Timestamp or null
+  isImportant: PropTypes.bool,
+  isUrgent: PropTypes.bool,
+  assigneeIds: PropTypes.arrayOf(PropTypes.string),
+});
+
 Column.propTypes = {
   title: PropTypes.string.isRequired,
-  tasks: PropTypes.arrayOf(
-    PropTypes.shape({
-      id: PropTypes.string.isRequired,
-      title: PropTypes.string.isRequired,
-      description: PropTypes.string,
-      status: PropTypes.string.isRequired,
-      // Add other properties of a task object if they exist and are used
-      // e.g., createdAt: PropTypes.object, // If it's a Firebase Timestamp object
-    })
-  ).isRequired,
-  onMoveTask: PropTypes.func.isRequired,
-  onDeleteTask: PropTypes.func.isRequired,
-  onEditTask: PropTypes.func.isRequired,
-  columns: PropTypes.arrayOf(PropTypes.string).isRequired,
+  tasks: PropTypes.arrayOf(taskShape).isRequired,
+  onViewTask: PropTypes.func.isRequired,
+  onEditRequest: PropTypes.func.isRequired,
+  onDeleteRequest: PropTypes.func.isRequired,
 };
 
 export default Column;

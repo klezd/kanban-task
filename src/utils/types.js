@@ -20,3 +20,12 @@ export const taskPropTypes = PropTypes.shape({
     })
   ),
 }).isRequired;
+
+export const conciseTaskPropTypes = PropTypes.shape({
+  // Use your shared taskPropTypes here if available
+  id: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  isUrgent: PropTypes.bool,
+  isImportant: PropTypes.bool,
+  deadline: PropTypes.object,
+});

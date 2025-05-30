@@ -464,50 +464,9 @@ function App() {
             confirmButtonColor="bg-red-600 hover:bg-red-700"
           />
 
-          {/* Placeholder for TaskDetailModal - to be built next */}
           {isDetailModalOpen && selectedTaskForDetail && (
             <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-center p-4">
               <div className="bg-white p-6 md:p-8 rounded-lg shadow-xl w-full max-w-xl">
-                <h2 className="text-xl font-semibold text-olive-green-700 mb-4">
-                  Task Detail/Edit (Placeholder)
-                </h2>
-                <p>
-                  <span className="font-medium">Title:</span>{" "}
-                  {selectedTaskForDetail.title}
-                </p>
-                <p>
-                  <span className="font-medium">Status:</span>{" "}
-                  {selectedTaskForDetail.status}
-                </p>
-                <p>
-                  <span className="font-medium">Deadline:</span>{" "}
-                  {selectedTaskForDetail.deadline?.toDate
-                    ? selectedTaskForDetail.deadline
-                        .toDate()
-                        .toLocaleDateString()
-                    : "Not set"}
-                </p>
-                <p>
-                  <span className="font-medium">Important:</span>{" "}
-                  {selectedTaskForDetail.isImportant ? "Yes" : "No"}
-                </p>
-                <p>
-                  <span className="font-medium">Urgent:</span>{" "}
-                  {selectedTaskForDetail.isUrgent ? "Yes" : "No"}
-                </p>
-                <p className="mt-2">
-                  <span className="font-medium">Mode:</span>{" "}
-                  {detailModalEditMode ? "Editing" : "Viewing"}
-                </p>
-                <div className="mt-6 flex justify-end">
-                  <button
-                    onClick={closeDetailModal}
-                    className="py-2 px-4 bg-spearmint-200 text-olive-green-700 rounded-lg hover:bg-spearmint-300"
-                  >
-                    Close Placeholder
-                  </button>
-                </div>
-                {/* Actual TaskDetailModal will be rendered here */}
                 {isDetailModalOpen && selectedTaskForDetail && (
                   <TaskDetailModal
                     isOpen={isDetailModalOpen}
@@ -544,7 +503,6 @@ function App() {
                   onViewTask={openViewTaskModal}
                   onEditRequest={openEditTaskModal}
                   onDeleteRequest={requestDeleteConfirmation}
-                  columns={KANBAN_COLUMNS}
                 />
               ))}
             </div>

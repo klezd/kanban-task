@@ -1,7 +1,7 @@
-// In Column.js
 import React from "react";
-import PropTypes from "prop-types"; // 👈 Import PropTypes
-import TaskCard from "./TaskCard"; // Assuming TaskCard is in the same folder or adjust path
+import PropTypes from "prop-types";
+import TaskCard from "../common/TaskCard";
+import { taskPropTypes } from "../../utils/types";
 
 const Column = ({
   title,
@@ -33,22 +33,9 @@ const Column = ({
   );
 };
 
-const taskShape = PropTypes.shape({
-  id: PropTypes.string.isRequired,
-  title: PropTypes.string.isRequired,
-  description: PropTypes.string,
-  status: PropTypes.string.isRequired,
-  createdAt: PropTypes.object, // Firestore Timestamp
-  authorId: PropTypes.string,
-  deadline: PropTypes.object, // Firestore Timestamp or null
-  isImportant: PropTypes.bool,
-  isUrgent: PropTypes.bool,
-  assigneeIds: PropTypes.arrayOf(PropTypes.string),
-});
-
 Column.propTypes = {
   title: PropTypes.string.isRequired,
-  tasks: PropTypes.arrayOf(taskShape).isRequired,
+  tasks: taskPropTypes,
   onViewTask: PropTypes.func.isRequired,
   onEditRequest: PropTypes.func.isRequired,
   onDeleteRequest: PropTypes.func.isRequired,

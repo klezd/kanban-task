@@ -1,6 +1,7 @@
 import React from "react";
 import PropTypes from "prop-types";
 import { Trash2 as DeleteIcon, Edit3 as EditIcon } from "lucide-react";
+import { taskPropTypes } from "../../utils/types";
 
 // --- Task Card Component ---
 const TaskCard = ({ task, onViewTask, onEditRequest, onDeleteRequest }) => {
@@ -97,22 +98,10 @@ const TaskCard = ({ task, onViewTask, onEditRequest, onDeleteRequest }) => {
 };
 
 TaskCard.propTypes = {
-  task: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    title: PropTypes.string.isRequired,
-    description: PropTypes.string,
-    status: PropTypes.string.isRequired,
-    createdAt: PropTypes.object,
-    authorId: PropTypes.string,
-    deadline: PropTypes.object,
-    isImportant: PropTypes.bool,
-    isUrgent: PropTypes.bool,
-    assigneeIds: PropTypes.arrayOf(PropTypes.string),
-  }).isRequired,
+  task: taskPropTypes,
   onViewTask: PropTypes.func.isRequired,
   onEditRequest: PropTypes.func.isRequired,
   onDeleteRequest: PropTypes.func.isRequired,
 };
 
-// export default TaskCard;
 export default TaskCard;
